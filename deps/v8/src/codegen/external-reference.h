@@ -51,11 +51,15 @@ class StatsCounter;
   V(scheduled_exception_address, "Isolate::scheduled_exception")               \
   V(address_of_pending_message_obj, "address_of_pending_message_obj")          \
   V(promise_hook_address, "Isolate::promise_hook_address()")                   \
+  V(context_promise_hook_address, "Isolate::context_promise_hook_address()")   \
   V(async_event_delegate_address, "Isolate::async_event_delegate_address()")   \
   V(promise_hook_or_async_event_delegate_address,                              \
     "Isolate::promise_hook_or_async_event_delegate_address()")                 \
   V(promise_hook_or_debug_is_active_or_async_event_delegate_address,           \
     "Isolate::promise_hook_or_debug_is_active_or_async_event_delegate_"        \
+    "address()")                                                               \
+  V(any_promise_hook_or_debug_is_active_or_async_event_delegate_address,       \
+    "Isolate::any_promise_hook_or_debug_is_active_or_async_event_delegate_"    \
     "address()")                                                               \
   V(debug_execution_mode_address, "Isolate::debug_execution_mode_address()")   \
   V(debug_is_active_address, "Debug::is_active_address()")                     \

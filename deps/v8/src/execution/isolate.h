@@ -1334,6 +1334,15 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   }
 #endif
 
+  void SetContextPromiseHooks(bool context_promise_hook) {
+    context_promise_hook_ = context_promise_hook;
+    PromiseHookStateUpdated();
+  }
+
+  Address context_promise_hook_address() {
+    return reinterpret_cast<Address>(&context_promise_hook_);
+  }
+
   Address promise_hook_address() {
     return reinterpret_cast<Address>(&promise_hook_);
   }
@@ -1351,6 +1360,12 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
         &promise_hook_or_debug_is_active_or_async_event_delegate_);
   }
 
+  Address
+      any_promise_hook_or_debug_is_active_or_async_event_delegate_address() {
+    return reinterpret_cast<Address>(
+        &any_promise_hook_or_debug_is_active_or_async_event_delegate_);
+  }
+
   Address handle_scope_implementer_address() {
     return reinterpret_cast<Address>(&handle_scope_implementer_);
   }
@@ -1366,6 +1381,9 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   void SetPromiseHook(PromiseHook hook);
   void RunPromiseHook(PromiseHookType type, Handle<JSPromise> promise,
                       Handle<Object> parent);
+  void RunAllPromiseHooks(PromiseHookType type, Handle<JSPromise> promise,
+                          Handle<Object> parent);
+  void UpdatePromiseHookProtector();
   void PromiseHookStateUpdated();
 
   void AddDetachedContext(Handle<Context> context);
@@ -1871,8 +1889,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   debug::ConsoleDelegate* console_delegate_ = nullptr;
 
   debug::AsyncEventDelegate* async_event_delegate_ = nullptr;
+  bool context_promise_hook_ = false;
   bool promise_hook_or_async_event_delegate_ = false;
   bool promise_hook_or_debug_is_active_or_async_event_delegate_ = false;
+  bool any_promise_hook_or_debug_is_active_or_async_event_delegate_ = false;
   int async_task_count_ = 0;
 
   v8::Isolate::AbortOnUncaughtExceptionCallback

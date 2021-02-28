@@ -8,6 +8,9 @@
 namespace runtime {
 extern transitioning runtime
 AllowDynamicFunction(implicit context: Context)(JSAny): JSAny;
+
+extern transitioning runtime
+ReportMessageFromMicrotask(implicit context: Context)(JSAny): JSAny;
 }
 
 // Unsafe functions that should be used very carefully.
@@ -16,6 +19,9 @@ extern macro PromiseBuiltinsAssembler::ZeroOutEmbedderOffsets(JSPromise): void;
 
 extern macro PromiseBuiltinsAssembler::AllocateJSPromise(Context): HeapObject;
 }
+
+extern macro
+PromiseBuiltinsAssembler::IsContextPromiseHookEnabled(): bool;
 
 namespace promise {
 extern macro IsFunctionWithPrototypeSlotMap(Map): bool;
@@ -90,6 +96,74 @@ macro NewPromiseRejectReactionJobTask(implicit context: Context)(
   };
 }
 
+@export
+transitioning macro RunContextPromiseHookInit(implicit context: Context)(
+    promise: JSPromise, parent: Object) {
+  if (!IsContextPromiseHookEnabled()) return;
+  const maybeHook = *NativeContextSlot(
+      ContextSlot::PROMISE_HOOK_INIT_FUNCTION_INDEX);
+  if (IsUndefined(maybeHook)) return;
+
+  const hook = Cast<JSFunction>(maybeHook) otherwise unreachable;
+  const parentObject = Is<JSPromise>(parent) ? Cast<JSPromise>(parent)
+      otherwise unreachable: Undefined;
+
+  try {
+    Call(context, hook, Undefined, promise, parentObject);
+  } catch (e) {
+    // Swallow the exception here.
+    runtime::ReportMessageFromMicrotask(e);
+  }
+}
+
+@export
+transitioning macro RunContextPromiseHookResolve(implicit context: Context)(
+    promise: JSPromise) {
+  RunContextPromiseHook(
+      ContextSlot::PROMISE_HOOK_RESOLVE_FUNCTION_INDEX, promise);
+}
+
+@export
+transitioning macro RunContextPromiseHookBefore(implicit context: Context)(
+    promiseOrCapability: JSPromise|PromiseCapability) {
+  RunContextPromiseHook(
+      ContextSlot::PROMISE_HOOK_BEFORE_FUNCTION_INDEX, promiseOrCapability);
+}
+
+@export
+transitioning macro RunContextPromiseHookAfter(implicit context: Context)(
+    promiseOrCapability: JSPromise|PromiseCapability) {
+  RunContextPromiseHook(
+      ContextSlot::PROMISE_HOOK_AFTER_FUNCTION_INDEX, promiseOrCapability);
+}
+
+transitioning macro RunContextPromiseHook(implicit context: Context)(
+    slot: Slot<NativeContext, Undefined|JSFunction>,
+    promiseOrCapability: JSPromise|PromiseCapability) {
+  if (!IsContextPromiseHookEnabled()) return;
+  const maybeHook = *NativeContextSlot(slot);
+  if (IsUndefined(maybeHook)) return;
+
+  const hook = Cast<JSFunction>(maybeHook) otherwise unreachable;
+
+  let promise: JSPromise;
+  typeswitch (promiseOrCapability) {
+    case (jspromise: JSPromise): {
+      promise = jspromise;
+    }
+    case (capability: PromiseCapability): {
+      promise = Cast<JSPromise>(capability.promise) otherwise return;
+    }
+  }
+
+  try {
+    Call(context, hook, Undefined, promise);
+  } catch (e) {
+    // Swallow the exception here.
+    runtime::ReportMessageFromMicrotask(e);
+  }
+}
+
 // These allocate and initialize a promise with pending state and
 // undefined fields.
 //
@@ -100,6 +174,7 @@ transitioning macro NewJSPromise(implicit context: Context)(parent: Object):
     JSPromise {
   const instance = InnerNewJSPromise();
   PromiseInit(instance);
+  RunContextPromiseHookInit(instance, parent);
   if (IsPromiseHookEnabledOrHasAsyncEventDelegate()) {
     runtime::PromiseHookInit(instance, parent);
   }
@@ -124,7 +199,7 @@ transitioning macro NewJSPromise(implicit context: Context)(
   instance.reactions_or_result = result;
   instance.SetStatus(status);
   promise_internal::ZeroOutEmbedderOffsets(instance);
-
+  RunContextPromiseHookInit(instance, Undefined);
   if (IsPromiseHookEnabledOrHasAsyncEventDelegate()) {
     runtime::PromiseHookInit(instance, Undefined);
   }

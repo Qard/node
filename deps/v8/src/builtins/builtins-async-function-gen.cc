@@ -157,6 +157,8 @@ TF_BUILTIN(AsyncFunctionEnter, AsyncFunctionBuiltinsAssembler) {
   StoreObjectFieldNoWriteBarrier(
       async_function_object, JSAsyncFunctionObject::kPromiseOffset, promise);
 
+  RunContextPromiseHookInit(context, promise, UndefinedConstant());
+
   // Fire promise hooks if enabled and push the Promise under construction
   // in an async function on the catch prediction stack to handle exceptions
   // thrown before the first await.

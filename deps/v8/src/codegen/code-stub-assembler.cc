@@ -12835,6 +12835,20 @@ TNode<BoolT> CodeStubAssembler::IsDebugActive() {
   return Word32NotEqual(is_debug_active, Int32Constant(0));
 }
 
+TNode<BoolT> CodeStubAssembler::IsAnyPromiseHookEnabled() {
+  const TNode<Uint8T> is_any_promise_enabled = Load<Uint8T>(ExternalConstant(
+      ExternalReference::
+          any_promise_hook_or_debug_is_active_or_async_event_delegate_address(
+              isolate())));
+  return Word32NotEqual(is_any_promise_enabled, Int32Constant(0));
+}
+
+TNode<BoolT> CodeStubAssembler::IsContextPromiseHookEnabled() {
+  const TNode<RawPtrT> promise_hook = Load<RawPtrT>(ExternalConstant(
+      ExternalReference::context_promise_hook_address(isolate())));
+  return WordNotEqual(promise_hook, IntPtrConstant(0));
+}
+
 TNode<BoolT> CodeStubAssembler::IsPromiseHookEnabled() {
   const TNode<RawPtrT> promise_hook = Load<RawPtrT>(
       ExternalConstant(ExternalReference::promise_hook_address(isolate())));

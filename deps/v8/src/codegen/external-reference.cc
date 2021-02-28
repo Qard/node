@@ -738,6 +738,11 @@ ExternalReference ExternalReference::promise_hook_address(Isolate* isolate) {
   return ExternalReference(isolate->promise_hook_address());
 }
 
+ExternalReference ExternalReference::context_promise_hook_address(
+    Isolate* isolate) {
+  return ExternalReference(isolate->context_promise_hook_address());
+}
+
 ExternalReference ExternalReference::async_event_delegate_address(
     Isolate* isolate) {
   return ExternalReference(isolate->async_event_delegate_address());
@@ -756,6 +761,14 @@ ExternalReference ExternalReference::
   return ExternalReference(
       isolate
           ->promise_hook_or_debug_is_active_or_async_event_delegate_address());
+}
+
+ExternalReference ExternalReference::
+    any_promise_hook_or_debug_is_active_or_async_event_delegate_address(
+        Isolate* isolate) {
+  return ExternalReference(
+      isolate
+      ->any_promise_hook_or_debug_is_active_or_async_event_delegate_address());
 }
 
 ExternalReference ExternalReference::debug_execution_mode_address(

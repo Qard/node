@@ -3367,6 +3367,8 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
       TNode<Context> context);
 
   // Promise helpers
+  TNode<BoolT> IsContextPromiseHookEnabled();
+  TNode<BoolT> IsAnyPromiseHookEnabled();
   TNode<BoolT> IsPromiseHookEnabled();
   TNode<BoolT> HasAsyncEventDelegate();
   TNode<BoolT> IsPromiseHookEnabledOrHasAsyncEventDelegate();
