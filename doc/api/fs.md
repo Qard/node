@@ -8285,6 +8285,789 @@ The following constants are meant for use with the {fs.Stats} object's
 
 On Windows, only `S_IRUSR` and `S_IWUSR` are available.
 
+## Virtual File System (VFS)
+
+<!-- YAML
+added: REPLACEME
+-->
+
+The Virtual File System (VFS) provides an abstraction layer over various storage
+backends, allowing applications to work with files stored in memory, S3, ZIP
+archives, embedded assets, and other locations using the same familiar Node.js
+fs API.
+
+### Overview
+
+The VFS system consists of:
+
+* **`VirtualFileSystem`**: The main coordinator class that provides file system
+  operations through pluggable providers
+* **`VirtualProvider`**: Abstract base class that defines the interface for storage
+  backends
+* **Provider implementations**: Built-in providers for different storage types
+  (Memory, Local, S3, ZIP, Overlay, Embedded)
+* **VFS classes**: VFSFileHandle, VFSStats, VFSDirent, VFSError - compatible
+  with their standard fs counterparts
+
+### Quick Start
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+// Create an in-memory filesystem
+const vfs = VFSFileSystem.memory();
+
+// Use familiar fs APIs
+await vfs.promises.writeFile('/hello.txt', 'Hello, VFS!');
+const content = await vfs.promises.readFile('/hello.txt', 'utf8');
+console.log(content); // 'Hello, VFS!'
+
+// Works with callbacks too
+vfs.readFile('/hello.txt', 'utf8', (err, data) => {
+  if (err) throw err;
+  console.log(data);
+});
+
+// And synchronous operations
+const syncContent = vfs.readFileSync('/hello.txt', 'utf8');
+```
+
+```cjs
+const { VFSFileSystem } = require('node:fs');
+
+const vfs = VFSFileSystem.memory();
+vfs.writeFileSync('/hello.txt', 'Hello, VFS!');
+console.log(vfs.readFileSync('/hello.txt', 'utf8'));
+```
+
+### Class: `VirtualFileSystem`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+The main coordinator class for VFS operations. Manages a provider and virtual
+current working directory.
+
+#### `new VFSFileSystem(provider[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `provider` {VFSProvider} The storage backend provider
+* `options` {Object}
+  * `cwd` {string} Initial virtual current working directory. **Default:** `'/'`
+
+Creates a new VFS instance with the specified provider.
+
+```mjs
+import { VFSFileSystem, MemoryProvider } from 'node:fs';
+
+const vfs = new VFSFileSystem(new MemoryProvider());
+```
+
+#### `VFSFileSystem.memory([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object}
+  * `cwd` {string} Initial virtual current working directory. **Default:** `'/'`
+* Returns: {VFSFileSystem}
+
+Factory method that creates a VFS instance with an in-memory provider.
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.memory();
+await vfs.promises.writeFile('/test.txt', 'data');
+```
+
+#### `VFSFileSystem.local([options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object}
+  * `cwd` {string} Initial virtual current working directory. **Default:** `'/'`
+  * `root` {string} Root directory for the local filesystem
+* Returns: {VFSFileSystem}
+
+Factory method that creates a VFS instance wrapping the native filesystem.
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.local({ root: '/tmp' });
+await vfs.promises.writeFile('/test.txt', 'data'); // writes to /tmp/test.txt
+```
+
+#### `VFSFileSystem.s3(options)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `options` {Object}
+  * `bucket` {string} S3 bucket name (required)
+  * `region` {string} AWS region. **Default:** `'us-east-1'`
+  * `endpoint` {string} Custom S3 endpoint (for S3-compatible services)
+  * `accessKeyId` {string} AWS access key ID
+  * `secretAccessKey` {string} AWS secret access key
+  * `sessionToken` {string} AWS session token (for temporary credentials)
+  * `storeMetadata` {boolean} Store permissions and timestamps in object
+    metadata. **Default:** `false`
+  * `cwd` {string} Initial virtual current working directory. **Default:** `'/'`
+* Returns: {VFSFileSystem}
+
+Factory method that creates a VFS instance for S3 or S3-compatible storage.
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.s3({
+  bucket: 'my-bucket',
+  region: 'us-west-2',
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+});
+
+await vfs.promises.writeFile('/data.json', JSON.stringify({ foo: 'bar' }));
+```
+
+#### `vfs.promises`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* {Object}
+
+Provides promise-based file system methods. All methods return promises and
+support the same signatures as `fs.promises`.
+
+Available methods: `access`, `appendFile`, `chmod`, `chown`, `copyFile`,
+`lstat`, `mkdir`, `readdir`, `readFile`, `readlink`, `realpath`, `rename`,
+`rmdir`, `stat`, `symlink`, `truncate`, `unlink`, `utimes`, `writeFile`,
+`open`, `rm`, `cp`, `exists`.
+
+```mjs
+const data = await vfs.promises.readFile('/file.txt', 'utf8');
+await vfs.promises.mkdir('/newdir', { recursive: true });
+const stats = await vfs.promises.stat('/file.txt');
+```
+
+#### `vfs.readFile(path[, options], callback)`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `path` {string|Buffer|URL} File path
+* `options` {Object|string}
+  * `encoding` {string|null} **Default:** `null`
+  * `flag` {string} See [support of file system `flags`][]. **Default:** `'r'`
+* `callback` {Function}
+  * `err` {Error|null}
+  * `data` {string|Buffer}
+
+Asynchronously reads the entire contents of a file using the VFS provider.
+
+See [`fs.readFile()`][] for detailed behavior.
+
+#### `vfs.readFileSync(path[, options])`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+* `path` {string|Buffer|URL} File path
+* `options` {Object|string}
+  * `encoding` {string|null} **Default:** `null`
+  * `flag` {string} See [support of file system `flags`][]. **Default:** `'r'`
+* Returns: {string|Buffer}
+
+Synchronously reads the entire contents of a file using the VFS provider.
+
+See [`fs.readFileSync()`][] for detailed behavior.
+
+#### Other VFS methods
+
+The `VirtualFileSystem` class provides the same comprehensive API as the standard
+`fs` module, including:
+
+**File operations**: `writeFile`, `appendFile`, `copyFile`, `truncate`, `unlink`
+
+**Directory operations**: `mkdir`, `readdir`, `rmdir`, `rm`, `cp`
+
+**Metadata operations**: `stat`, `lstat`, `chmod`, `chown`, `utimes`
+
+**Link operations**: `link`, `symlink`, `readlink`, `realpath`
+
+**Utility methods**: `access`, `exists`
+
+Each method is available in three forms:
+* Callback form (e.g., `vfs.readFile(path, callback)`)
+* Synchronous form (e.g., `vfs.readFileSync(path)`)
+* Promise form (e.g., `vfs.promises.readFile(path)`)
+
+### Class: `VirtualProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Abstract base class for VFS storage backends. Custom providers should extend
+this class and implement the required primitive methods.
+
+#### Required primitive methods
+
+Providers must implement these ~15 essential methods:
+
+* `async open(path, flags, mode)` - Open a file, returns file handle
+* `async stat(path, options)` - Get file/directory stats
+* `async lstat(path, options)` - Get stats without following symlinks
+* `async unlink(path)` - Delete a file
+* `async rename(oldPath, newPath)` - Rename/move a file or directory
+* `async chmod(path, mode)` - Change file permissions
+* `async chown(path, uid, gid)` - Change file owner
+* `async utimes(path, atime, mtime)` - Update file timestamps
+* `async link(existingPath, newPath)` - Create hard link
+* `async symlink(target, path, type)` - Create symbolic link
+* `async readlink(path)` - Read symbolic link target
+* `async mkdir(path, options)` - Create directory
+* `async rmdir(path)` - Remove directory
+* `async readdir(path, options)` - Read directory contents
+* `tmpdir()` - Get temporary directory path
+
+Each async method should also have a corresponding `*Sync` variant.
+
+#### Default implementations
+
+The base class provides ~35 default implementations built on top of the
+primitives:
+
+* High-level file operations: `readFile`, `writeFile`, `appendFile`, `copyFile`
+* Existence checks: `access`, `exists`
+* Path operations: `realpath`
+* Recursive operations: `rm`, `cp`
+* Additional utilities
+
+#### Capability detection
+
+Providers expose capability flags to indicate supported features:
+
+* `readonly` - Provider is read-only
+* `supportsSymlinks` - Symbolic links are supported
+* `supportsHardLinks` - Hard links are supported
+* `supportsPermissions` - File permissions (chmod) are supported
+* `supportsChown` - Owner changes (chown) are supported
+* `supportsLocking` - File locking is supported
+* `supportsFsync` - fsync/fdatasync are supported
+* `supportsWatch` - File watching is supported
+* `supportsTempDirectory` - Temporary directory is available
+* `supportsUtime` - Timestamp updates are supported
+* `deleteRaisesOnMissing` - Delete operations throw if file doesn't exist
+* `mkdirRaisesOnExists` - mkdir throws if directory already exists
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.s3({ bucket: 'my-bucket' });
+console.log(vfs.provider.supportsSymlinks); // false
+console.log(vfs.provider.readonly); // false
+```
+
+### Built-in Providers
+
+#### `MemoryProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+In-memory filesystem with full support for hard links, symbolic links, and
+permissions.
+
+Features:
+* Inode-based hard links with reference counting
+* Full symbolic link support with cycle detection
+* Complete permission and ownership support
+* Fast operations (no I/O)
+
+Limitations:
+* Data is not persisted
+* Memory usage grows with stored data
+
+```mjs
+import { VFSFileSystem, MemoryProvider } from 'node:fs';
+
+const vfs = new VFSFileSystem(new MemoryProvider());
+// or use the factory method:
+const vfs2 = VFSFileSystem.memory();
+
+await vfs.promises.writeFile('/data.txt', 'hello');
+await vfs.promises.mkdir('/subdir');
+await vfs.promises.symlink('/data.txt', '/link.txt');
+```
+
+#### `LocalProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Wraps the native Node.js filesystem. Primarily useful for testing, overlay
+filesystems, or when you need VFS abstraction over real files.
+
+* `new LocalProvider([options])`
+  * `options` {Object}
+    * `root` {string} Root directory to restrict operations to
+
+```mjs
+import { VFSFileSystem, LocalProvider } from 'node:fs';
+
+const vfs = new VFSFileSystem(new LocalProvider({ root: '/tmp' }));
+// or use the factory method:
+const vfs2 = VFSFileSystem.local({ root: '/tmp' });
+
+await vfs.promises.writeFile('/test.txt', 'data'); // writes to /tmp/test.txt
+```
+
+#### `S3Provider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Provides access to Amazon S3 or S3-compatible storage (MinIO, DigitalOcean
+Spaces, etc.) with no external dependencies.
+
+* `new S3Provider(options)`
+  * `options` {Object}
+    * `bucket` {string} S3 bucket name (required)
+    * `region` {string} AWS region. **Default:** `'us-east-1'`
+    * `endpoint` {string} Custom endpoint URL (for S3-compatible services)
+    * `accessKeyId` {string} AWS access key ID
+    * `secretAccessKey` {string} AWS secret access key
+    * `sessionToken` {string} AWS session token
+    * `storeMetadata` {boolean} Store permissions/timestamps in object metadata.
+      **Default:** `false`
+
+Features:
+* Efficient streaming reads using HTTP Range requests
+* Server-side COPY for efficient rename/copy operations
+* Optional metadata storage for permissions and timestamps
+* Built-in AWS Signature Version 4 signing
+* Support for multipart uploads (for large files)
+
+Limitations:
+* No symbolic or hard links
+* Rename is not atomic (copy + delete)
+* Higher latency than local operations
+* Permissions only work when `storeMetadata` is enabled
+* All operations are async (no sync variants)
+
+```mjs
+import { VFSFileSystem, S3Provider } from 'node:fs';
+
+const vfs = new VFSFileSystem(new S3Provider({
+  bucket: 'my-bucket',
+  region: 'us-west-2',
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+}));
+
+// MinIO example
+const minioVfs = new VFSFileSystem(new S3Provider({
+  bucket: 'test-bucket',
+  endpoint: 'http://localhost:9000',
+  accessKeyId: 'minioadmin',
+  secretAccessKey: 'minioadmin',
+}));
+
+await vfs.promises.writeFile('/data.json', JSON.stringify({ foo: 'bar' }));
+const data = await vfs.promises.readFile('/data.json', 'utf8');
+```
+
+#### `ZipProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Read and write ZIP archives using Node.js's built-in zlib (no external
+dependencies).
+
+* `new ZipProvider(options)`
+  * `options` {Object}
+    * `buffer` {Buffer} Existing ZIP file buffer (for reading)
+    * `autoFlush` {boolean} Automatically flush changes. **Default:** `false`
+
+Features:
+* Read from and write to ZIP archives
+* Pending changes pattern: accumulates modifications in memory
+* Manual or automatic flushing to create new ZIP buffer
+* Deflate compression
+
+Limitations:
+* No symbolic or hard links
+* Permissions are not preserved
+* No temporary directory support
+* Entire ZIP is loaded into memory
+* Must call `flush()` to persist changes (unless `autoFlush` is enabled)
+
+```mjs
+import { VFSFileSystem, ZipProvider } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+// Create a new ZIP
+const vfs = new VFSFileSystem(new ZipProvider());
+await vfs.promises.writeFile('/readme.txt', 'Hello from ZIP!');
+await vfs.promises.mkdir('/data');
+await vfs.promises.writeFile('/data/config.json', '{}');
+
+// Flush changes to get the ZIP buffer
+const zipBuffer = await vfs.provider.flush();
+writeFileSync('archive.zip', zipBuffer);
+
+// Read from existing ZIP
+const existingZip = readFileSync('archive.zip');
+const readVfs = new VFSFileSystem(new ZipProvider({ buffer: existingZip }));
+const content = await readVfs.promises.readFile('/readme.txt', 'utf8');
+console.log(content); // 'Hello from ZIP!'
+```
+
+#### `OverlayProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Union mount filesystem that combines a writable upper layer with a read-only
+lower layer using copy-on-write semantics.
+
+* `new OverlayProvider(upper, lower[, options])`
+  * `upper` {VFSProvider} Writable upper layer provider
+  * `lower` {VFSProvider} Read-only lower layer provider
+  * `options` {Object}
+    * `persistMetadata` {boolean} Persist whiteouts and opaque dirs to JSON.
+      **Default:** `false`
+    * `metadataPath` {string} Path for metadata file. **Default:**
+      `'/.overlay-metadata'`
+
+Features:
+* Copy-on-write: files are copied from lower to upper on first write
+* Whiteouts: deleted lower layer files are marked deleted
+* Opaque directories: upper directories can completely mask lower directories
+* Read-through: reads check upper layer first, fall back to lower
+* Metadata persistence (optional)
+
+Limitations:
+* Capabilities are inherited from the upper layer
+* Some operations (like rename across layers) may be expensive
+* Whiteouts consume space in upper layer
+
+```mjs
+import { VFSFileSystem, MemoryProvider, OverlayProvider } from 'node:fs';
+
+// Create base layer with some files
+const lower = new MemoryProvider();
+const lowerVfs = new VFSFileSystem(lower);
+await lowerVfs.promises.writeFile('/base.txt', 'base content');
+await lowerVfs.promises.writeFile('/config.txt', 'default config');
+
+// Create writable upper layer
+const upper = new MemoryProvider();
+
+// Create overlay
+const overlay = new OverlayProvider(upper, lower);
+const vfs = new VFSFileSystem(overlay);
+
+// Reads come from lower layer
+console.log(await vfs.promises.readFile('/base.txt', 'utf8')); // 'base content'
+
+// Writes go to upper layer (copy-on-write)
+await vfs.promises.writeFile('/config.txt', 'custom config');
+console.log(await vfs.promises.readFile('/config.txt', 'utf8')); // 'custom config'
+
+// Lower layer unchanged
+console.log(await lowerVfs.promises.readFile('/config.txt', 'utf8')); // 'default config'
+
+// Deletions create whiteouts
+await vfs.promises.unlink('/base.txt');
+// File appears deleted in overlay but still exists in lower layer
+```
+
+#### `EmbeddedProvider`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Read-only access to assets embedded in Single Executable Applications (SEA)
+using the `node:sea` API.
+
+* `new EmbeddedProvider([options])`
+  * `options` {Object}
+    * `prefix` {string} Asset key prefix to strip. **Default:** `''`
+
+Features:
+* Read-only access to embedded assets
+* Builds virtual directory structure from flat asset keys
+* No external dependencies or disk I/O
+* Works with Node.js SEA (Single Executable Applications)
+
+Limitations:
+* Read-only (all write operations throw errors)
+* Requires SEA environment
+* No symbolic or hard links
+* No permissions or ownership
+* No temporary directory
+
+```mjs
+// After building an SEA with embedded assets using node:sea
+import { VFSFileSystem, EmbeddedProvider } from 'node:fs';
+
+const vfs = new VFSFileSystem(new EmbeddedProvider());
+
+// Read embedded assets
+const config = await vfs.promises.readFile('/assets/config.json', 'utf8');
+const files = await vfs.promises.readdir('/assets');
+
+// All write operations will throw
+try {
+  await vfs.promises.writeFile('/test.txt', 'data');
+} catch (err) {
+  console.log(err.code); // 'EROFS' (read-only filesystem)
+}
+```
+
+### Class: `VirtualFileHandle`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Represents an open file in a VFS. Compatible with `fs.promises.FileHandle`.
+
+Created by `vfs.promises.open()`.
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.memory();
+const fh = await vfs.promises.open('/test.txt', 'w');
+
+try {
+  await fh.writeFile('Hello, VFS!');
+  await fh.sync();
+} finally {
+  await fh.close();
+}
+
+// Or use async disposal
+{
+  await using fh = await vfs.promises.open('/test.txt', 'r');
+  const data = await fh.readFile('utf8');
+  console.log(data);
+  // Automatically closed
+}
+```
+
+#### `filehandle.read(buffer, offset, length, position)`
+#### `filehandle.write(buffer, offset, length, position)`
+#### `filehandle.readFile([options])`
+#### `filehandle.writeFile(data[, options])`
+#### `filehandle.appendFile(data[, options])`
+#### `filehandle.stat([options])`
+#### `filehandle.chmod(mode)`
+#### `filehandle.chown(uid, gid)`
+#### `filehandle.utimes(atime, mtime)`
+#### `filehandle.truncate([len])`
+#### `filehandle.sync()`
+#### `filehandle.datasync()`
+#### `filehandle.close()`
+
+See the corresponding methods in [`FileHandle`][Class: `FileHandle`] for
+detailed documentation. VFS file handles support the same API.
+
+### Class: `VirtualStats`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Represents file or directory metadata. Compatible with `fs.Stats`.
+
+Properties and methods are identical to [`fs.Stats`][Class: `fs.Stats`]:
+`dev`, `ino`, `mode`, `nlink`, `uid`, `gid`, `rdev`, `size`, `blksize`,
+`blocks`, `atimeMs`, `mtimeMs`, `ctimeMs`, `birthtimeMs`, `atime`, `mtime`,
+`ctime`, `birthtime`, `isFile()`, `isDirectory()`, `isSymbolicLink()`, etc.
+
+### Class: `VirtualDirent`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Represents a directory entry. Compatible with `fs.Dirent`.
+
+Properties and methods are identical to [`fs.Dirent`][Class: `fs.Dirent`]:
+`name`, `parentPath`, `path`, `isFile()`, `isDirectory()`, `isSymbolicLink()`,
+etc.
+
+### Class: `VirtualError`
+
+<!-- YAML
+added: REPLACEME
+-->
+
+Error class for VFS operations. Compatible with Node.js system errors.
+
+Properties:
+* `code` {string} Error code (e.g., `'ENOENT'`, `'EEXIST'`, `'EISDIR'`)
+* `syscall` {string} System call that caused the error
+* `path` {string} Path involved in the error
+* `dest` {string} Destination path (for operations like rename)
+* `errno` {number} Error number
+
+Common error codes:
+* `ENOENT` - No such file or directory
+* `EEXIST` - File already exists
+* `ENOTDIR` - Not a directory
+* `EISDIR` - Is a directory
+* `ENOTEMPTY` - Directory not empty
+* `EROFS` - Read-only file system
+* `EACCES` - Permission denied
+
+### Usage Examples
+
+#### Example: In-memory filesystem for testing
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+import { test } from 'node:test';
+import assert from 'node:assert';
+
+test('file operations', async () => {
+  const vfs = VFSFileSystem.memory();
+
+  await vfs.promises.writeFile('/test.txt', 'data');
+  const content = await vfs.promises.readFile('/test.txt', 'utf8');
+
+  assert.strictEqual(content, 'data');
+});
+```
+
+#### Example: S3-backed application data
+
+```mjs
+import { VFSFileSystem } from 'node:fs';
+
+const vfs = VFSFileSystem.s3({
+  bucket: 'app-data',
+  region: 'us-west-2',
+});
+
+// Save user data to S3
+await vfs.promises.writeFile(
+  `/users/${userId}/profile.json`,
+  JSON.stringify(profile)
+);
+
+// List all users
+const users = await vfs.promises.readdir('/users');
+```
+
+#### Example: Configuration overlay
+
+```mjs
+import { VFSFileSystem, LocalProvider, OverlayProvider, MemoryProvider } from 'node:fs';
+
+// Base configuration (read-only)
+const base = new LocalProvider({ root: '/etc/myapp' });
+
+// User overrides (in-memory)
+const overrides = new MemoryProvider();
+
+// Create overlay
+const vfs = new VFSFileSystem(new OverlayProvider(overrides, base));
+
+// Read default config (from base)
+const config = JSON.parse(
+  await vfs.promises.readFile('/config.json', 'utf8')
+);
+
+// Override specific settings (stored in memory)
+config.debug = true;
+await vfs.promises.writeFile('/config.json', JSON.stringify(config));
+
+// Base config file remains unchanged
+```
+
+#### Example: Creating a ZIP archive
+
+```mjs
+import { VFSFileSystem, ZipProvider } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+
+const vfs = new VFSFileSystem(new ZipProvider());
+
+// Add files to ZIP
+await vfs.promises.writeFile('/README.md', '# My Project\n\nDocumentation here.');
+await vfs.promises.mkdir('/src');
+await vfs.promises.writeFile('/src/index.js', 'console.log("Hello!");');
+await vfs.promises.writeFile('/package.json', JSON.stringify({
+  name: 'my-project',
+  version: '1.0.0',
+}));
+
+// Get the ZIP buffer and save it
+const zipBuffer = await vfs.provider.flush();
+writeFileSync('project.zip', zipBuffer);
+```
+
+#### Example: Custom provider
+
+```mjs
+import { VFSProvider, VFSFileSystem } from 'node:fs';
+
+class HttpProvider extends VFSProvider {
+  constructor(baseUrl) {
+    super();
+    this.baseUrl = baseUrl;
+  }
+
+  get readonly() {
+    return true;
+  }
+
+  async open(path, flags, mode) {
+    // Implement HTTP-based file reading
+    const response = await fetch(this.baseUrl + path);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return new HttpFileHandle(buffer);
+  }
+
+  async stat(path) {
+    // Implement HEAD request to get file info
+    const response = await fetch(this.baseUrl + path, { method: 'HEAD' });
+    // Return VFSStats object
+  }
+
+  // Implement other required primitives...
+}
+
+const vfs = new VFSFileSystem(new HttpProvider('https://example.com'));
+const data = await vfs.promises.readFile('/data.json', 'utf8');
+```
+
 ## Notes
 
 ### Ordering of callback and promise-based operations
